@@ -1,4 +1,3 @@
-import numpy as np
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
@@ -13,7 +12,7 @@ class AttentionPooling(nn.Module):
         self.stride = stride
         self.w = nn.Parameter(torch.eye(channels) * 2) 
     
-    def forward(self, x):    
+    def forward(self, x: torch.Tensor):    
         batch, channels, seq_len = x.shape
         n_windows = (seq_len - self.pool_size) // self.stride + 1
         windows = []
@@ -39,7 +38,7 @@ class ConvBlock(nn.Module):
             nn.Conv1d(in_channels, out_channels, kernel_size, stride, padding, dilation),
         )
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         return self.block(x)
 
 
@@ -50,7 +49,7 @@ class RConvBlock(nn.Module):
         self.projection = nn.Conv1d(in_channels, out_channels, kernel_size=1) \
                             if in_channels != out_channels else nn.Identity()
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         return self.r_block(x) + self.projection(x)
 
 
@@ -64,7 +63,7 @@ class Stem(nn.Module):
             AttentionPooling(out_channels, pool_size=2, stride=2),
         )
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         return self.block(x)
 
 
@@ -89,6 +88,60 @@ class ConvTower(nn.Module):
         return x
 
 
+class MHA(nn.Module):
+    def __init__(
+        self,
+        channels: int,
+        num_heads: int = 8,
+        key_dim: int = 64,
+        val_dim: int = 192,
+        dropout: float = 0.05,
+    ):
+        super().__init__()
+
+        self.key_dim = key_dim
+        self.val_dim = val_dim
+        self.num_head = num_heads
+        self.scale = self.key_dim ** -0.5
+
+        self.q_proj = nn.Linear(channels, num_heads * key_dim)
+        self.k_proj = nn.Linear(channels, num_heads * key_dim)
+        self.v_proj = nn.Linear(channels, num_heads * val_dim)
+
+        self.proj_out = nn.Linear(num_heads * val_dim, channels)
+        self.dropout = nn.Dropout(dropout)
+    
+    def forward(self, x: torch.Tensor):
+        batch_size, seq_len, channels = x.shape
+        
+        Q = self.q_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)
+        K = self.k_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)
+        V = self.v_proj(x).view(batch_size, seq_len, self.num_head, self.val_dim).transpose(1, 2)
+
+        attn = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+        attn = torch.softmax(attn, dim=-1)
+        attn = self.dropout(attn)
+        scores = torch.matmul(attn, V)
+
+        out = scores.transpose(2, 1).contiguous().view(batch_size, seq_len, self.num_head * self.val_dim)
+        out = self.proj_out(out)
+        return out
+
+
+class MHABlock(nn.Module):
+    def __init__(self, channels: int, key_dim: int = 64, num_heads: int = 8, dropout: float = 0.4):
+        super().__init__()
+        val_dim = channels // num_heads
+        self.block = nn.Sequential(
+            nn.LayerNorm(channels), 
+            MHA(channels, num_heads, key_dim, val_dim), 
+            nn.Dropout(dropout),
+        )
+    
+    def forward(self, x: torch.Tensor):
+        return self.block(x) + x
+
+
 class FeedForward(nn.Module):
     def __init__(self, in_channels: int, dropout: float = 0.4):
         super().__init__()
@@ -101,8 +154,16 @@ class FeedForward(nn.Module):
             nn.Dropout(dropout),
         )
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         return x + self.block(x)
+
+
+class PointWise(nn.Module):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, x: torch.Tensor):
+        pass
 
 
 if __name__ == "__main__":

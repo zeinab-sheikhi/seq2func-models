@@ -93,7 +93,7 @@ class FeedForward(nn.Module):
     def __init__(self, in_channels: int, dropout: float = 0.4):
         super().__init__()
         self.block = nn.Sequential(
-            nn.LayerNorm(in_channels), 
+            nn.GroupNorm(1, in_channels), 
             nn.Conv1d(in_channels, 2 * in_channels, kernel_size=1), 
             nn.Dropout(dropout), 
             nn.ReLU(), 

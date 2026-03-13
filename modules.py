@@ -1,6 +1,9 @@
+import numpy as np
 import torch 
 import torch.nn as nn 
 import torch.nn.functional as F
+
+from utils import get_out_channels
 
 
 class AttentionPooling(nn.Module):
@@ -65,11 +68,51 @@ class Stem(nn.Module):
         return self.block(x)
 
 
+class ConvTower(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, n_blocks: int = 6):
+        super().__init__()
+        channels = get_out_channels(in_channels, out_channels, n_blocks + 1)
+        self.blocks = nn.ModuleList()
+
+        for i in range(n_blocks):
+            self.blocks.append(
+                    nn.Sequential(
+                    ConvBlock(channels[i], channels[i + 1], kernel_size=5, dilation=1),
+                    RConvBlock(channels[i + 1], channels[i + 1], kernel_size=1),
+                    AttentionPooling(channels=channels[i + 1], pool_size=2, stride=2),
+                )
+            )
+
+    def forward(self, x: torch.Tensor):
+        for block in self.blocks:
+            x = block(x)
+        return x
+
+
+class FeedForward(nn.Module):
+    def __init__(self, in_channels: int, dropout: float = 0.4):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.LayerNorm(in_channels), 
+            nn.Conv1d(in_channels, 2 * in_channels, kernel_size=1), 
+            nn.Dropout(dropout), 
+            nn.ReLU(), 
+            nn.Conv1d(2 * in_channels, in_channels, kernel_size=1), 
+            nn.Dropout(dropout),
+        )
+    
+    def forward(self, x):
+        return x + self.block(x)
+
+
 if __name__ == "__main__":
-    x = torch.randn(1, 4, 197000)  
+    x = torch.randn(1, 4, 196608)  
     stem = Stem(in_channels=4, channels=1536)
-    n_params = sum(p.numel() for p in stem.parameters())
-    # out = stem(x)
-    # print(out.shape)
+    tower = ConvTower(in_channels=768, out_channels=1536)
+    x = stem(x)
+    x = tower(x)
+    print(x.shape)
+    n_params = sum(p.numel() for p in stem.parameters()) + sum(p.numel() for p in tower.parameters())
     print(n_params)
+
     

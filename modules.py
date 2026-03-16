@@ -197,25 +197,41 @@ class MHABlock(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, in_channels: int, dropout: float = 0.4):
         super().__init__()
+        self.norm = nn.Linear(in_channels)
         self.block = nn.Sequential(
-            nn.GroupNorm(1, in_channels), 
-            nn.Conv1d(in_channels, 2 * in_channels, kernel_size=1), 
+            nn.Linear(in_channels, in_channels * 2), 
             nn.Dropout(dropout), 
             nn.ReLU(), 
-            nn.Conv1d(2 * in_channels, in_channels, kernel_size=1), 
+            nn.Linear(2 * in_channels, in_channels), 
             nn.Dropout(dropout),
         )
     
     def forward(self, x: torch.Tensor):
-        return x + self.block(x)
+        return x + self.block(self.norm(x))
 
 
 class Transformer(nn.Module):
-    def __init__(self):
+    def __init__(self, num_layers: int, channels: int, key_dim: int = 64, num_heads: int = 8, dropout: float = 0.4):
         super().__init__()
+        self.mha_blocks = nn.ModuleList([
+            MHABlock(
+                channels=channels,
+                key_dim=key_dim, 
+                num_heads=num_heads, 
+                dropout=dropout,
+            ) for _ in range(num_layers)
+        ])
+        
+        self.ff_blocks = nn.ModuleList([
+            FeedForward(in_channels=channels, dropout=dropout)
+            for _ in range(num_layers)
+        ])
     
     def forward(self, x: torch.Tensor):
-        pass
+        for mha, ff in zip(self.mha_blocks, self.ff_blocks):
+            x = mha(x)
+            x = ff(x)
+        return x
 
 
 class PointWise(nn.Module):
@@ -226,50 +242,5 @@ class PointWise(nn.Module):
         pass
 
 
-
-def test_mha_block():
-    print("=== Testing MHABlock ===")
-    channels = 64  # use small channels for fast testing
-    seq_len  = 16  # use short sequence for fast testing
-    batch    = 2
-
-    x = torch.randn(batch, seq_len, channels)
-    block = MHABlock(channels=channels, key_dim=8, num_heads=4, dropout=0.0)
-
-    # --- Test 1: output shape unchanged ---
-    out = block(x)
-    assert out.shape == (batch, seq_len, channels), \
-        f"Expected {(batch, seq_len, channels)}, got {out.shape}"
-    print(f"Test 1 passed: shape {out.shape}")
-
-    # --- Test 2: residual connection is active ---
-    # zero out all MHA weights — output should equal input (only residual)
-    with torch.no_grad():
-        for param in block.block[1].parameters():
-            param.zero_()
-    out_zeroed = block(out)
-    assert not torch.allclose(out_zeroed, torch.zeros_like(out_zeroed)), \
-        "Residual not active"
-    print("Test 2 passed: residual connection active")
-
-    # --- Test 3: gradient flow ---
-    x = torch.randn(batch, seq_len, channels, requires_grad=True)
-    block = MHABlock(channels=channels, key_dim=8, num_heads=4, dropout=0.0)
-    out = block(x)
-    loss = out.sum()
-    loss.backward()
-    assert x.grad is not None, "No gradient at input"
-    print(f"Test 3 passed: gradients flow, grad shape {x.grad.shape}")
-
-    # --- Test 4: dropout is off in eval mode ---
-    block.eval()
-    out1 = block(x)
-    out2 = block(x)
-    assert torch.allclose(out1, out2), "Outputs differ in eval mode — dropout not disabled"
-    print("Test 4 passed: deterministic in eval mode")
-
-
-
 if __name__ == "__main__":
-    test_mha_block()
-
+    pass

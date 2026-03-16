@@ -88,6 +88,20 @@ class ConvTower(nn.Module):
         return x
 
 
+class RelativePositionalEncoding(nn.Module):
+    def __init__(self, channels: int, num_features: int = 192):
+        super().__init__()
+        self.encoding = nn.Linear(num_features, channels, bias=False)
+    
+    def _compute_basis(self, distances):
+        raise NotImplementedError
+    
+    def forward(self, seq_len: int):
+        distances = torch.arange(-(seq_len - 1), seq_len)
+        basis = self._compute_basis(distances)
+        return self.encoding(basis)
+
+
 class MHA(nn.Module):
     def __init__(
         self,
@@ -110,22 +124,46 @@ class MHA(nn.Module):
 
         self.proj_out = nn.Linear(num_heads * val_dim, channels)
         self.dropout = nn.Dropout(dropout)
+
+        self.pos_encoding = RelativePositionalEncoding(key_dim)
+        self.u = nn.Parameter(torch.zeros(num_heads, key_dim)) 
+        self.v = nn.Parameter(torch.zeros(num_heads, key_dim))
     
     def forward(self, x: torch.Tensor):
         batch_size, seq_len, channels = x.shape
         
-        Q = self.q_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)
-        K = self.k_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)
-        V = self.v_proj(x).view(batch_size, seq_len, self.num_head, self.val_dim).transpose(1, 2)
+        Q = self.q_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)  # [B, H, L, dk]
+        K = self.k_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)  # [B, H, L, dk]
+        V = self.v_proj(x).view(batch_size, seq_len, self.num_head, self.val_dim).transpose(1, 2)  # [B, H, L, dv]
 
-        attn = torch.matmul(Q, K.transpose(-2, -1)) * self.scale
+        R = self.pos_encoding(seq_len).to(x.device)  # [2 * L - 1, dk]
+
+        # term1: content to content 
+        term1 = torch.matmul(Q, K.transpose(-2, -1))  # [B, H, L, L]
+
+        # term2: content to position 
+        term2 = torch.matmul(Q, R.transpose(-2, -1))  # [B, H, L, 2 * L -1]
+        term2 = self._rel_shift(term2)  # [B, H, L, L]
+
+        # term3: position-agnostic key preference
+        u = u.unsqueeze(0).unsqueeze(2)  # [1, H, 1, dk]
+        term3 = torch.matmul(self.u, K.transpose(-2, -1))  # [1, H, 1, L]
+
+        # term4: position-agnostic distance preference
+        v = v.unsqueeze(0).unsqueeze(2)
+        term4 = torch.matmul(self.v, R.transpose(-2, -1)) # [1, H, 1, 2 * L - 1]
+        term4 = self._rel_shift(term4)
+
+        attn = term1 + term2 + term3 + term4
         attn = torch.softmax(attn, dim=-1)
         attn = self.dropout(attn)
-        scores = torch.matmul(attn, V)
+        
+        out = torch.matmul(attn, v)
+        out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, self.num_head * self.val_dim)
+        return self.proj_out(out)
 
-        out = scores.transpose(2, 1).contiguous().view(batch_size, seq_len, self.num_head * self.val_dim)
-        out = self.proj_out(out)
-        return out
+    def _rel_shift(self, x):
+        pass
 
 
 class MHABlock(nn.Module):
@@ -158,6 +196,14 @@ class FeedForward(nn.Module):
         return x + self.block(x)
 
 
+class Transformer(nn.Module):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, x: torch.Tensor):
+        pass
+
+
 class PointWise(nn.Module):
     def __init__(self):
         super().__init__()
@@ -168,12 +214,9 @@ class PointWise(nn.Module):
 
 if __name__ == "__main__":
     x = torch.randn(1, 4, 196608)  
-    stem = Stem(in_channels=4, channels=1536)
-    tower = ConvTower(in_channels=768, out_channels=1536)
-    x = stem(x)
-    x = tower(x)
-    print(x.shape)
-    n_params = sum(p.numel() for p in stem.parameters()) + sum(p.numel() for p in tower.parameters())
-    print(n_params)
+    from utils import basis_function_exponential
+    print(basis_function_exponential(r=torch.tensor([-5, 3]), l=10, steps=2))
+    # rel_pos = RelativePositionalEncoding(channels=4, num_features=192)
+
 
     

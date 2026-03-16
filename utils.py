@@ -50,6 +50,33 @@ def positional_features_central_mask(positions: torch.Tensor, feat_size: int):
     return torch.cat([value, value * sign], dim=1)
 
 
+def positional_features_gamma(positions: torch.Tensor, feat_size: int, seq_len: int | None = None, stddev=None, start_mean=None):
+    """Poitional features computed using Gamma distribution."""
+    
+    if seq_len is None:
+        seq_len = int(positions.abs().max().item()) + 1
+    
+    assert positions.shape == torch.Size([2 * seq_len - 1]), \
+        f"positions must have shape (2*seq_len-1,), got {positions.shape}"
+    
+    if stddev is None:
+        stddev = seq_len / (2 * feat_size)
+    if start_mean is None:
+        start_mean = seq_len / feat_size
+    
+    mu = torch.linspace(start_mean, seq_len, feat_size)
 
-def basis_function_gamma():
-    pass
+    alpha = (mu / stddev) ** 2
+    beta = mu / (stddev ** 2)
+
+    dist = torch.distributions.Gamma(concentration=alpha, rate=beta)
+    
+    abs_r = positions.abs().unsqueeze(1).clamp(1e-8)
+    sign = torch.sign(positions).unsqueeze(1)
+
+    value = torch.exp(dist.log_prob(abs_r))
+    value = value + 1e-8
+    value = value / value.max(dim=0, keepdim=True).values
+    return torch.cat([value, value * sign], dim=1)
+
+

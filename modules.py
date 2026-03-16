@@ -125,7 +125,7 @@ class MHA(nn.Module):
 
         self.key_dim = key_dim
         self.val_dim = val_dim
-        self.num_head = num_heads
+        self.num_heads = num_heads
         self.scale = self.key_dim ** -0.5
 
         self.q_proj = nn.Linear(channels, num_heads * key_dim)
@@ -142,9 +142,9 @@ class MHA(nn.Module):
     def forward(self, x: torch.Tensor):
         batch_size, seq_len, channels = x.shape
         
-        Q = self.q_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)  # [B, H, L, dk]
-        K = self.k_proj(x).view(batch_size, seq_len, self.num_head, self.key_dim).transpose(1, 2)  # [B, H, L, dk]
-        V = self.v_proj(x).view(batch_size, seq_len, self.num_head, self.val_dim).transpose(1, 2)  # [B, H, L, dv]
+        Q = self.q_proj(x).view(batch_size, seq_len, self.num_heads, self.key_dim).transpose(1, 2)  # [B, H, L, dk]
+        K = self.k_proj(x).view(batch_size, seq_len, self.num_heads, self.key_dim).transpose(1, 2)  # [B, H, L, dk]
+        V = self.v_proj(x).view(batch_size, seq_len, self.num_heads, self.val_dim).transpose(1, 2)  # [B, H, L, dv]
 
         R = self.pos_encoding(seq_len).to(x.device)  # [2 * L - 1, dk]
 
@@ -156,24 +156,28 @@ class MHA(nn.Module):
         term2 = self._rel_shift(term2)  # [B, H, L, L]
 
         # term3: position-agnostic key preference
-        u = u.unsqueeze(0).unsqueeze(2)  # [1, H, 1, dk]
-        term3 = torch.matmul(self.u, K.transpose(-2, -1))  # [1, H, 1, L]
+        u = self.u.unsqueeze(0).unsqueeze(2)  # [1, H, 1, dk]
+        term3 = torch.matmul(u, K.transpose(-2, -1))  # [B, H, 1, L]
 
         # term4: position-agnostic distance preference
-        v = v.unsqueeze(0).unsqueeze(2)
-        term4 = torch.matmul(self.v, R.transpose(-2, -1)) # [1, H, 1, 2 * L - 1]
+        v = self.v.unsqueeze(0).unsqueeze(2)
+        term4 = torch.matmul(v, R.transpose(-2, -1)) # [1, H, 1, 2 * L - 1]
         term4 = self._rel_shift(term4)
 
         attn = term1 + term2 + term3 + term4
         attn = torch.softmax(attn, dim=-1)
         attn = self.dropout(attn)
         
-        out = torch.matmul(attn, v)
-        out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, self.num_head * self.val_dim)
+        out = torch.matmul(attn, V)
+        out = out.transpose(1, 2).contiguous().view(batch_size, seq_len, self.num_heads * self.val_dim)
         return self.proj_out(out)
 
     def _rel_shift(self, x):
-        pass
+        batch, heads, seq_len, full_len = x.shape
+        x = F.pad(x, (1, 0)) # [B, H, L, 2L]
+        x = x.view(batch, heads, full_len + 1, seq_len) # [B, H, 2L, L]
+        x = x[:, :, 1:, :] # [B, H, 2L - 1, L]
+        return x[:, :, :seq_len, :] # [B, H, L, L]
 
 
 class MHABlock(nn.Module):
@@ -222,9 +226,50 @@ class PointWise(nn.Module):
         pass
 
 
+
+def test_mha_block():
+    print("=== Testing MHABlock ===")
+    channels = 64  # use small channels for fast testing
+    seq_len  = 16  # use short sequence for fast testing
+    batch    = 2
+
+    x = torch.randn(batch, seq_len, channels)
+    block = MHABlock(channels=channels, key_dim=8, num_heads=4, dropout=0.0)
+
+    # --- Test 1: output shape unchanged ---
+    out = block(x)
+    assert out.shape == (batch, seq_len, channels), \
+        f"Expected {(batch, seq_len, channels)}, got {out.shape}"
+    print(f"Test 1 passed: shape {out.shape}")
+
+    # --- Test 2: residual connection is active ---
+    # zero out all MHA weights — output should equal input (only residual)
+    with torch.no_grad():
+        for param in block.block[1].parameters():
+            param.zero_()
+    out_zeroed = block(out)
+    assert not torch.allclose(out_zeroed, torch.zeros_like(out_zeroed)), \
+        "Residual not active"
+    print("Test 2 passed: residual connection active")
+
+    # --- Test 3: gradient flow ---
+    x = torch.randn(batch, seq_len, channels, requires_grad=True)
+    block = MHABlock(channels=channels, key_dim=8, num_heads=4, dropout=0.0)
+    out = block(x)
+    loss = out.sum()
+    loss.backward()
+    assert x.grad is not None, "No gradient at input"
+    print(f"Test 3 passed: gradients flow, grad shape {x.grad.shape}")
+
+    # --- Test 4: dropout is off in eval mode ---
+    block.eval()
+    out1 = block(x)
+    out2 = block(x)
+    assert torch.allclose(out1, out2), "Outputs differ in eval mode — dropout not disabled"
+    print("Test 4 passed: deterministic in eval mode")
+
+
+
 if __name__ == "__main__":
-    x = torch.randn(1, 4, 196608)  
-    enc = RelativePositionalEncoding(key_dim=64, num_features=192)
-    R = enc(seq_len=1536)
-    print(R.shape) 
+    test_mha_block()
 

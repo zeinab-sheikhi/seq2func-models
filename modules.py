@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from utils import get_out_channels
+from utils import get_out_channels, positional_features_central_mask, positional_features_exponential, positional_features_gamma
 
 
 class AttentionPooling(nn.Module):
@@ -89,17 +89,25 @@ class ConvTower(nn.Module):
 
 
 class RelativePositionalEncoding(nn.Module):
-    def __init__(self, channels: int, num_features: int = 192):
+    def __init__(self, key_dim: int, num_features: int = 192):
         super().__init__()
-        self.encoding = nn.Linear(num_features, channels, bias=False)
+        self.key_dim = key_dim 
+        self.num_features = num_features
+        self.feat_size = num_features // 3
+        self.W_R = nn.Linear(num_features, key_dim, bias=False)
     
-    def _compute_basis(self, distances):
-        raise NotImplementedError
+    def _compute_basis(self, positions: torch.Tensor):
+        exponential_positions = positional_features_exponential(positions, self.feat_size)
+        central_mask_positions = positional_features_central_mask(positions, self.feat_size)
+        gamma_positions = positional_features_gamma(positions, self.feat_size)
+        return torch.cat([exponential_positions, central_mask_positions, gamma_positions], dim=1)
     
     def forward(self, seq_len: int):
-        distances = torch.arange(-(seq_len - 1), seq_len)
-        basis = self._compute_basis(distances)
-        return self.encoding(basis)
+        positions = torch.arange(-(seq_len - 1), seq_len,
+                                dtype=torch.float32, 
+                                device=self.W_R.weight.device)
+        basis = self._compute_basis(positions)
+        return self.W_R(basis)  # (2 * seq_len - 1, key_dim)
 
 
 class MHA(nn.Module):

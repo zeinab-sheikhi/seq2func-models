@@ -97,15 +97,17 @@ class RelativePositionalEncoding(nn.Module):
         self.W_R = nn.Linear(num_features, key_dim, bias=False)
     
     def _compute_basis(self, positions: torch.Tensor):
-        exponential_positions = positional_features_exponential(positions, self.feat_size)
-        central_mask_positions = positional_features_central_mask(positions, self.feat_size)
-        gamma_positions = positional_features_gamma(positions, self.feat_size)
-        return torch.cat([exponential_positions, central_mask_positions, gamma_positions], dim=1)
+        exp = positional_features_exponential(positions, self.feat_size)
+        mask = positional_features_central_mask(positions, self.feat_size)
+        gamma = positional_features_gamma(positions, self.feat_size)
+        return torch.cat([exp, mask, gamma], dim=1)
     
     def forward(self, seq_len: int):
-        positions = torch.arange(-(seq_len - 1), seq_len,
-                                dtype=torch.float32, 
-                                device=self.W_R.weight.device)
+        positions = torch.arange(
+            -(seq_len - 1), seq_len,
+            dtype=torch.float32, 
+            device=self.W_R.weight.device,
+        )
         basis = self._compute_basis(positions)
         return self.W_R(basis)  # (2 * seq_len - 1, key_dim)
 

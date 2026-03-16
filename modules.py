@@ -215,7 +215,8 @@ class PointWise(nn.Module):
 if __name__ == "__main__":
     x = torch.randn(1, 4, 196608)  
     from utils import basis_function_exponential
-    print(basis_function_exponential(r=torch.tensor([-5, 3]), l=10, steps=2))
+    r = torch.tensor([-5, 3, 8])
+    print(basis_function_exponential(r=r, l=2, steps=2))
     # rel_pos = RelativePositionalEncoding(channels=4, num_features=192)
 
 

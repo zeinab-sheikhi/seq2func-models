@@ -8,7 +8,12 @@ def get_out_channels(start: int, end: int, n_blocks: int) -> List[int]:
     return [int(round(x)) for x in np.linspace(start, end, n_blocks)]
 
 
-def positional_features_exponential(positions: torch.Tensor, feat_size: int, seq_len: int | None = None , min_half_life: float | None = 3.0):
+def positional_features_exponential(
+    positions: torch.Tensor,
+    feat_size: int,
+    seq_len: int | None = None,
+    min_half_life: float | None = 3.0, 
+):
     """ Create exponentially deacying positional weights.
 
     Args:
@@ -34,8 +39,16 @@ def positional_features_exponential(positions: torch.Tensor, feat_size: int, seq
     return torch.concat([value, sign * value], dim=1)
 
 
-def basis_function_central_mask(positions: torch.Tensor):
-    pass
+def positional_features_central_mask(positions: torch.Tensor, feat_size: int):
+    """Positional features using a central mask (allow only central features)."""
+    
+    i = torch.arange(0, feat_size + 1, dtype=torch.float32)
+    center_widths = 2 ** i - 1
+    abs_r = positions.abs().unsqueeze(1)
+    sign = torch.sign(positions).unsqueeze(1)
+    value = (center_widths > abs_r).float()
+    return torch.cat([value, value * sign], dim=1)
+
 
 
 def basis_function_gamma():

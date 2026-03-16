@@ -93,7 +93,7 @@ class RelativePositionalEncoding(nn.Module):
         super().__init__()
         self.key_dim = key_dim 
         self.num_features = num_features
-        self.feat_size = num_features // 3
+        self.feat_size = num_features // 6
         self.W_R = nn.Linear(num_features, key_dim, bias=False)
     
     def _compute_basis(self, positions: torch.Tensor):
@@ -224,14 +224,7 @@ class PointWise(nn.Module):
 
 if __name__ == "__main__":
     x = torch.randn(1, 4, 196608)  
-    from utils import positional_features_exponential, positional_features_central_mask
+    enc = RelativePositionalEncoding(key_dim=64, num_features=192)
+    R = enc(seq_len=1536)
+    print(R.shape) 
 
-    feat_size = 10
-    out = positional_features_central_mask(positions=torch.tensor([3, -5, 9, 1]), feat_size=3)
-    print(out)
-    
-    
-    # rel_pos = RelativePositionalEncoding(channels=4, num_features=192)
-
-
-    

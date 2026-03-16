@@ -42,7 +42,7 @@ def positional_features_exponential(
 def positional_features_central_mask(positions: torch.Tensor, feat_size: int):
     """Positional features using a central mask (allow only central features)."""
     
-    i = torch.arange(0, feat_size + 1, dtype=torch.float32)
+    i = torch.arange(1, feat_size + 1, dtype=torch.float32)
     center_widths = 2 ** i - 1
     abs_r = positions.abs().unsqueeze(1)
     sign = torch.sign(positions).unsqueeze(1)

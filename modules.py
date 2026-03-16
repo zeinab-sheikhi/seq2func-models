@@ -197,7 +197,7 @@ class MHABlock(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, in_channels: int, dropout: float = 0.4):
         super().__init__()
-        self.norm = nn.Linear(in_channels)
+        self.norm = nn.LayerNorm(in_channels)
         self.block = nn.Sequential(
             nn.Linear(in_channels, in_channels * 2), 
             nn.Dropout(dropout), 
@@ -243,4 +243,7 @@ class PointWise(nn.Module):
 
 
 if __name__ == "__main__":
-    pass
+    x = torch.randn(1, 16, 48)   # (batch, seq_len, channels)
+    transformer = Transformer(num_layers=2, channels=48, key_dim=12, num_heads=4)
+    out = transformer(x)
+    print(out.shape)  # (1, 16, 48) — unchanged

@@ -76,9 +76,9 @@ class ConvTower(nn.Module):
         for i in range(n_blocks):
             self.blocks.append(
                     nn.Sequential(
-                    ConvBlock(channels[i], channels[i + 1], kernel_size=5, dilation=1),
-                    RConvBlock(channels[i + 1], channels[i + 1], kernel_size=1),
-                    AttentionPooling(channels=channels[i + 1], pool_size=2, stride=2),
+                        ConvBlock(channels[i], channels[i + 1], kernel_size=5, dilation=1),
+                        RConvBlock(channels[i + 1], channels[i + 1], kernel_size=1),
+                        AttentionPooling(channels=channels[i + 1], pool_size=2, stride=2),
                 )
             )
 
@@ -164,7 +164,7 @@ class MHA(nn.Module):
         term4 = torch.matmul(v, R.transpose(-2, -1)) # [1, H, 1, 2 * L - 1]
         term4 = self._rel_shift(term4)
 
-        attn = term1 + term2 + term3 + term4
+        attn = (term1 + term2 + term3 + term4) * self.scale
         attn = torch.softmax(attn, dim=-1)
         attn = self.dropout(attn)
         
@@ -228,6 +228,7 @@ class Transformer(nn.Module):
         ])
     
     def forward(self, x: torch.Tensor):
+        x = x.permute(0, 2, 1)
         for mha, ff in zip(self.mha_blocks, self.ff_blocks):
             x = mha(x)
             x = ff(x)
@@ -235,15 +236,49 @@ class Transformer(nn.Module):
 
 
 class PointWise(nn.Module):
-    def __init__(self):
+    def __init__(self, in_channels: int, dropout: float = 0.05, ):
         super().__init__()
+        self.block = nn.Sequential(
+            ConvBlock(in_channels=in_channels, out_channels=in_channels * 2, kernel_size=1),
+            nn.Dropout(dropout), 
+            nn.GELU(),
+        )
     
     def forward(self, x: torch.Tensor):
-        pass
+        # trim 320 on both edges
+        x = x[:, 320 : -320, :]
+        x = x.permute(0, 2, 1)
+        x = self.block(x)
+        return x
+
+
+class Enformer(nn.Module):
+    def __init__(
+        self,
+        in_channels: int = 4,
+        out_channels: int = 1536,
+        n_conv_tower_blocks: int = 6, 
+        n_transformer_layers: int = 11, 
+        key_dim: int = 64, 
+        num_heads: int = 8,
+        trans_dropout: float = 0.1, 
+    ):
+        super().__init__()
+        self.stem = Stem(in_channels, out_channels)
+        self.conv_tower = ConvTower(out_channels // 2, out_channels, n_conv_tower_blocks)
+        self.transformer = Transformer(n_transformer_layers, out_channels, key_dim, num_heads, trans_dropout)
+        self.pointwise = PointWise(out_channels)
+    
+    def forward(self, x: torch.Tensor):
+        x = self.stem(x)
+        x = self.conv_tower(x)
+        x = self.transformer(x)
+        x = self.pointwise(x)
+        return x
 
 
 if __name__ == "__main__":
-    x = torch.randn(1, 16, 48)   # (batch, seq_len, channels)
-    transformer = Transformer(num_layers=2, channels=48, key_dim=12, num_heads=4)
-    out = transformer(x)
-    print(out.shape)  # (1, 16, 48) — unchanged
+    x = torch.randn(1, 4, 196608)   # (batch, channels, seq_len)
+    enformer = Enformer()
+    out = enformer(x)
+    print(out.shape)

@@ -3,6 +3,7 @@ import torch.nn as nn
 
 from modules import RelativePositionalEncoding
 
+
 class MHA(nn.Module):
     # what do we need for this multiplication, the input would have the size (B, channels, 1536) = (B, C, L)
     def __init__(

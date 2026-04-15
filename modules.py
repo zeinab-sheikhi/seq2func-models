@@ -2,7 +2,13 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 
-from utils import get_out_channels, positional_features_central_mask, positional_features_exponential, positional_features_gamma
+from utils import (
+    get_out_channels,
+    positional_features_central_mask,
+    positional_features_exponential,
+    positional_features_gamma,
+    softplus,
+)
 
 
 class AttentionPooling(nn.Module):
@@ -252,6 +258,18 @@ class PointWise(nn.Module):
         return x
 
 
+class OutputHead(nn.Module):
+    def __init__(self, n_tracks: int, in_channels: int = 3072):
+        super().__init__()
+        self.conv = nn.Conv1d(in_channels, n_tracks, kernel_size=1)
+        self.softplus = nn.Softplus()
+    
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.softplus(x)
+        return x
+
+
 class Enformer(nn.Module):
     def __init__(
         self,
@@ -268,13 +286,18 @@ class Enformer(nn.Module):
         self.conv_tower = ConvTower(out_channels // 2, out_channels, n_conv_tower_blocks)
         self.transformer = Transformer(n_transformer_layers, out_channels, key_dim, num_heads, trans_dropout)
         self.pointwise = PointWise(out_channels)
+        self.human_head = OutputHead(n_tracks=5313)
+        self.mouse_head = OutputHead(n_tracks=1643)
     
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, organism: str = "human"):
         x = self.stem(x)
         x = self.conv_tower(x)
         x = self.transformer(x)
         x = self.pointwise(x)
-        return x
+        if organism == "human":
+            return self.human_head(x)
+        else: 
+            return self.mouse_head(x)
 
 
 if __name__ == "__main__":

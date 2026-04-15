@@ -78,5 +78,3 @@ def positional_features_gamma(positions: torch.Tensor, feat_size: int, seq_len: 
     value = value + 1e-8
     value = value / value.max(dim=0, keepdim=True).values
     return torch.cat([value, value * sign], dim=1)
-
-

@@ -7,7 +7,6 @@ from utils import (
     positional_features_central_mask,
     positional_features_exponential,
     positional_features_gamma,
-    softplus,
 )
 
 
@@ -60,13 +59,13 @@ class RConvBlock(nn.Module):
 
 
 class Stem(nn.Module):
-    def __init__(self, in_channels: int, channels: int):
+    def __init__(self, in_channels: int, channels: int, dilated: bool = False):
         super().__init__()
         out_channels = channels // 2
         self.block = nn.Sequential(
             nn.Conv1d(in_channels, out_channels, kernel_size=15, padding=7), 
             RConvBlock(out_channels, out_channels, kernel_size=1, dilation=1), 
-            AttentionPooling(out_channels, pool_size=2, stride=2),
+            nn.MaxPool1d(kernel_size=2) if dilated else AttentionPooling(out_channels, pool_size=2, stride=2),
         )
     
     def forward(self, x: torch.Tensor):
@@ -74,7 +73,7 @@ class Stem(nn.Module):
 
 
 class ConvTower(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, n_blocks: int = 6):
+    def __init__(self, in_channels: int, out_channels: int, n_blocks: int = 6, dilated: bool = False):
         super().__init__()
         channels = get_out_channels(in_channels, out_channels, n_blocks + 1)
         self.blocks = nn.ModuleList()
@@ -84,7 +83,7 @@ class ConvTower(nn.Module):
                     nn.Sequential(
                         ConvBlock(channels[i], channels[i + 1], kernel_size=5, dilation=1),
                         RConvBlock(channels[i + 1], channels[i + 1], kernel_size=1),
-                        AttentionPooling(channels=channels[i + 1], pool_size=2, stride=2),
+                        nn.MaxPool1d(kernel_size=2) if dilated else AttentionPooling(channels=channels[i + 1], pool_size=2, stride=2),
                 )
             )
 
@@ -241,6 +240,14 @@ class Transformer(nn.Module):
         return x
 
 
+class DilatedConvs(nn.Module):
+    def __init__(self):
+        super().__init__()
+    
+    def forward(self, x: torch.Tensor):
+        pass
+
+
 class PointWise(nn.Module):
     def __init__(self, in_channels: int, dropout: float = 0.05, ):
         super().__init__()
@@ -268,40 +275,3 @@ class OutputHead(nn.Module):
         x = self.conv(x)
         x = self.softplus(x)
         return x
-
-
-class Enformer(nn.Module):
-    def __init__(
-        self,
-        in_channels: int = 4,
-        out_channels: int = 1536,
-        n_conv_tower_blocks: int = 6, 
-        n_transformer_layers: int = 11, 
-        key_dim: int = 64, 
-        num_heads: int = 8,
-        trans_dropout: float = 0.1, 
-    ):
-        super().__init__()
-        self.stem = Stem(in_channels, out_channels)
-        self.conv_tower = ConvTower(out_channels // 2, out_channels, n_conv_tower_blocks)
-        self.transformer = Transformer(n_transformer_layers, out_channels, key_dim, num_heads, trans_dropout)
-        self.pointwise = PointWise(out_channels)
-        self.human_head = OutputHead(n_tracks=5313)
-        self.mouse_head = OutputHead(n_tracks=1643)
-    
-    def forward(self, x: torch.Tensor, organism: str = "human"):
-        x = self.stem(x)
-        x = self.conv_tower(x)
-        x = self.transformer(x)
-        x = self.pointwise(x)
-        if organism == "human":
-            return self.human_head(x)
-        else: 
-            return self.mouse_head(x)
-
-
-if __name__ == "__main__":
-    x = torch.randn(1, 4, 196608)   # (batch, channels, seq_len)
-    enformer = Enformer()
-    out = enformer(x)
-    print(out.shape)

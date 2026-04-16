@@ -241,11 +241,31 @@ class Transformer(nn.Module):
 
 
 class DilatedConvs(nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        channels: int,
+        n_layers: int = 11,
+        dilation_rate: int = 1,
+        dilation_factor: float = 1.5, 
+        dropout: float = 0.3,
+    ):
         super().__init__()
+        self.blocks = nn.ModuleList()
+        
+        for _ in range(n_layers):
+            self.blocks.append(
+                nn.Sequential(
+                    ConvBlock(channels, channels, kernel_size=3, dilation=dilation_rate), 
+                    ConvBlock(channels, channels, kernel_size=1, stride=1, dilation=1), 
+                    nn.Dropout(dropout),
+                )
+            )
+            dilation_rate = round(dilation_rate * dilation_factor) 
     
     def forward(self, x: torch.Tensor):
-        pass
+        for block in self.blocks:
+            x = block(x) + x
+        return x
 
 
 class PointWise(nn.Module):

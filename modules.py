@@ -237,6 +237,7 @@ class Transformer(nn.Module):
         for mha, ff in zip(self.mha_blocks, self.ff_blocks):
             x = mha(x)
             x = ff(x)
+        x = x.permute(0, 2, 1)
         return x
 
 
@@ -248,15 +249,17 @@ class DilatedConvs(nn.Module):
         dilation_rate: int = 1,
         dilation_factor: float = 1.5, 
         dropout: float = 0.3,
+        bottleneck: bool = False, 
     ):
         super().__init__()
+        mid_channels = channels // 2 if bottleneck else channels
         self.blocks = nn.ModuleList()
         
         for _ in range(n_layers):
             self.blocks.append(
                 nn.Sequential(
-                    ConvBlock(channels, channels, kernel_size=3, dilation=dilation_rate), 
-                    ConvBlock(channels, channels, kernel_size=1, stride=1, dilation=1), 
+                    ConvBlock(channels, mid_channels, kernel_size=3, dilation=dilation_rate), 
+                    ConvBlock(mid_channels, channels, kernel_size=1, stride=1, dilation=1), 
                     nn.Dropout(dropout),
                 )
             )
@@ -269,7 +272,7 @@ class DilatedConvs(nn.Module):
 
 
 class PointWise(nn.Module):
-    def __init__(self, in_channels: int, dropout: float = 0.05, ):
+    def __init__(self, in_channels: int, dropout: float = 0.05):
         super().__init__()
         self.block = nn.Sequential(
             ConvBlock(in_channels=in_channels, out_channels=in_channels * 2, kernel_size=1),
@@ -277,10 +280,8 @@ class PointWise(nn.Module):
             nn.GELU(),
         )
     
-    def forward(self, x: torch.Tensor):
-        # trim 320 on both edges
-        x = x[:, 320 : -320, :]
-        x = x.permute(0, 2, 1)
+    def forward(self, x: torch.Tensor, trim: int = 320):
+        x = x[:, :, trim : -trim]
         x = self.block(x)
         return x
 

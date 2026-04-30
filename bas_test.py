@@ -76,28 +76,9 @@ class DilatedConvBlock(nn.Module):
 
 
 
-
 if __name__ == "__main__":
-    # x = torch.rand(1, 4, 131072)
-
-    # number of channels increases, but the length stays the same
-    x = torch.rand(1, 256, 1024)
-    
-    # layer1 = DilatedConv(in_channels=256, out_channels=128, dilation=1, conv_kernel=3)
-    # out1 = layer1([x]) # [1, 128, 1024]
-    # layer2 = DilatedConv(in_channels=128 * 3, out_channels=128, dilation=2, conv_kernel=3)
-    # out2 = layer2([x, out1]) # [1, 128, 1024]
-    # layer3 = DilatedConv(in_channels=128 * 4, out_channels=128, dilation=4, conv_kernel=3)
-    # out3 = layer3([x, out1, out2]) # [1, 128, 1024]
-    # layer4 = DilatedConv(in_channels=128 * 5, out_channels=128, dilation=8, conv_kernel=3)
-    # out4 = layer4([x, out1, out2, out3]) # [1, 128, 1024]
-    # layer5 = DilatedConv(in_channels=128 * 6, out_channels=128, dilation=16)
-    # out5 = layer5([x, out1, out2, out3, out4]) # [1, 128, 1024]
-    # layer6 = DilatedConv(in_channels=128 * 7, out_channels=128, dilation=32)
-    # out6 = layer6([x, out1, out2, out3, out4, out5]) # [1, 128, 1024]
-    # layer7 = DilatedConv(in_channels=128 * 8, out_channels=128, dilation=64)
-    # out7 = layer7([x, out1, out2, out3, out4, out5, out6]) # [1, 128, 1024]
-
-    conv_block = DilatedConvBlock()
-    out = conv_block(x)
-    # print(out.shape)
+    x = torch.rand(1, 4, 131072)    
+    conv_block = ConvBlock()
+    dilated_conv_block = DilatedConvBlock()
+    out = dilated_conv_block(conv_block(x))
+    print(out.shape)
